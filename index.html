@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>[hidden]{display:none!important}body{margin:0}</style>
+<title>고객 Claim 현황</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: filter bar on top, dashboard column left, sticky Claim entry panel right (stacks below at narrow widths). */
+:root{
+  --bg:#F2F5F8; --panel:#FFFFFF; --fg:#14202B; --muted:#5B6B7A; --line:#D8E0E8; --soft:#EAF0F5;
+  --accent:#1F5F8B; --accent-fg:#FFFFFF; --ok:#2E7D5B; --warn:#B7791F; --bad:#C4372B;
+  --font:"IBM Plex Sans KR",system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0F161D; --panel:#17212B; --fg:#E6EDF3; --muted:#93A4B3; --line:#263340; --soft:#1E2B37;
+  --accent:#5BA8DB; --accent-fg:#0B1620; --ok:#4CB488; --warn:#E0A93C; --bad:#EF6A5E; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F161D; --panel:#17212B; --fg:#E6EDF3; --muted:#93A4B3; --line:#263340; --soft:#1E2B37;
+  --accent:#5BA8DB; --accent-fg:#0B1620; --ok:#4CB488; --warn:#E0A93C; --bad:#EF6A5E; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:17px;line-height:1.5;
+  padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+h1{font-size:23px;margin:0;font-weight:600;letter-spacing:-.01em}
+h2{font-size:17px;margin:0;font-weight:600}
+.sub{color:var(--muted);font-size:15.5px;margin:2px 0 0}
+.top{max-width:1320px;margin:0 auto 14px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.filters label{display:flex;flex-direction:column;gap:2px;font-size:14px;color:var(--muted);letter-spacing:.02em}
+select,input[type=text],input[type=number]{font:inherit;font-size:16px;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
+select:focus-visible,input:focus-visible,button:focus-visible,label:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.wrap{max-width:1320px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:20px;align-items:start}
+.main{display:flex;flex-direction:column;gap:16px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.panel-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.panel-h span{font-size:15px;color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.kpi b{display:block;font-size:14.5px;font-weight:500;color:var(--muted)}
+.kpi .v{font-family:var(--mono);font-size:29px;font-weight:500;line-height:1.25;font-variant-numeric:tabular-nums}
+.kpi small{color:var(--muted);font-size:14.5px}
+.v.bad{color:var(--bad)}.v.warn{color:var(--warn)}.v.ok{color:var(--ok)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar{display:grid;grid-template-columns:110px minmax(0,1fr) 130px;gap:8px;align-items:center;font-size:15.5px}
+.bar .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .tr{height:10px;background:var(--soft);border-radius:3px;position:relative}
+.bar .fl{height:100%;border-radius:3px}
+.bar .rt{text-align:right;color:var(--muted);font-size:15px}
+.bar .rt b{color:var(--fg);font-weight:500}
+.loc{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--soft)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:15.5px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15.5px}
+th,td{padding:6px 8px;text-align:left;white-space:nowrap}
+th{font-weight:500;color:var(--muted);font-size:14.5px;border-bottom:1px solid var(--line)}
+td{border-bottom:1px solid var(--line)}
+td.r,th.r{text-align:right}
+table.heat{table-layout:fixed;width:100%}
+.heat th:first-child{width:110px}
+.heat th,.heat td{padding-left:2px;padding-right:2px}
+.heat td.c{text-align:center;min-width:0;padding:6px 0;border:2px solid var(--panel);font-family:var(--mono);font-size:15px;border-radius:4px;
+  background:color-mix(in srgb,var(--bad) calc(var(--t)*100%),var(--soft))}
+.heat td.c.hi{color:#fff}
+.heat td.c.none{color:var(--muted);background:transparent}
+.heat th.r{text-align:center}
+.tag{display:inline-block;font-size:14px;padding:1px 6px;border-radius:99px;background:var(--soft);color:var(--muted)}
+.empty{color:var(--muted);padding:18px 0;text-align:center;font-size:16px}
+.hint{font-size:14.5px;color:var(--muted)}
+.aside{position:sticky;top:16px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.field>label,.field>span{font-size:15px;color:var(--muted)}
+.field input{width:100%;font-size:16px;padding:6px 8px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.seg label{position:relative;text-align:center;border:1px solid var(--line);border-radius:6px;padding:7px 0;cursor:pointer;font-size:16px;background:var(--panel);color:var(--fg)}
+.seg input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.seg label:has(input:checked){background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn{font:inherit;font-weight:500;font-size:16.5px;border:0;border-radius:6px;padding:9px 12px;background:var(--accent);color:var(--accent-fg);cursor:pointer;width:100%}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.ghost{background:var(--soft);color:var(--fg)}
+.drop{border:1.5px dashed var(--line);border-radius:8px;padding:16px 12px;text-align:center;font-size:16px;color:var(--muted)}
+select option{font-size:19px}
+.cb{position:relative}
+.cb-list{position:absolute;z-index:20;left:0;right:0;top:100%;margin:2px 0 0;padding:4px;list-style:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;max-height:280px;overflow:auto;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+.cb-list li{padding:9px 10px;font-size:19px;border-radius:6px;cursor:pointer;overflow-wrap:anywhere}
+.cb-list li:hover,.cb-list li.on{background:var(--soft)}
+.drop.over{border-color:var(--accent);background:var(--soft);color:var(--fg)}
+.alerts{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
+.al{border:1px solid var(--line);border-radius:8px;padding:8px 12px;width:fit-content;max-width:100%;min-width:0;background:var(--soft)}
+.al-h{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.al-h b{font-weight:600;font-size:17px;color:var(--fg)}
+.al-n{font-family:var(--mono);font-size:14px;font-weight:500;color:#fff;background:var(--bad);border-radius:99px;padding:1px 9px}
+.al-d{margin-top:6px;font-size:14px;color:var(--muted);line-height:1.6;}
+.al-i{display:flex;flex-direction:column;padding:6px 0;border-top:1px solid var(--line);font-family:var(--mono)}
+.pn2{color:var(--fg);overflow-wrap:anywhere}
+table.anom th,table.anom td{white-space:normal;vertical-align:top}
+.pn{overflow-wrap:anywhere}
+table.anom{width:auto;max-width:100%}
+.okline{color:var(--ok);font-size:15px}
+.c-toggle{position:fixed;z-index:30;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));font:inherit;font-weight:600;font-size:16px;border:0;border-radius:99px;padding:14px 20px;background:var(--accent);color:var(--accent-fg);cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.c-panel{position:fixed;z-index:30;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));width:min(420px,calc(100vw - 32px));height:min(680px,calc(100vh - 32px));display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.28);overflow:hidden}
+.c-panel.min .c-log,.c-panel.min .c-form{display:none}
+.c-panel.min{height:auto}
+.c-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);font-size:16px}
+.c-log{flex:1;min-height:110px;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+.cm{max-width:88%;padding:8px 11px;border-radius:10px;font-size:15.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.crow{display:flex;gap:8px;align-items:flex-end;align-self:flex-start;max-width:96%}
+.crow .cm{align-self:auto;min-width:0}
+.av{flex:none;display:inline-flex}
+.av svg{width:38px;height:38px}
+.av-s svg{width:28px;height:28px}
+.c-title{display:flex;align-items:center;gap:8px}
+.cm.u{align-self:flex-end;background:var(--accent);color:var(--accent-fg)}
+.cm.b{align-self:flex-start;background:var(--soft);color:var(--fg)}
+.cm.err{color:var(--bad)}
+.c-form{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:flex-end}
+.c-form textarea{flex:1;min-width:0;resize:none;font:inherit;font-size:16px;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+.c-form .btn{width:auto;padding:9px 14px}
+.c-cfg{padding:8px 12px 12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px;background:var(--soft)}
+.c-cfg label{display:flex;flex-direction:column;gap:2px;font-size:13.5px;color:var(--muted);font-family:var(--mono)}
+.c-cfg input{width:100%;font-size:15px;padding:5px 8px}
+.c-cfg p{margin:2px 0 0}
+.field textarea{width:100%;font:inherit;font-size:16px;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;resize:vertical}
+.msg{font-size:15.5px;min-height:18px;margin-top:8px}
+.msg.ok{color:var(--ok)}.msg.err{color:var(--bad)}
+.recent{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.recent li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:15.5px;align-items:center}
+.recent li:last-child{border-bottom:0}
+.recent .m{color:var(--muted);font-size:14.5px}
+.x{font:inherit;font-size:15px;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer}
+.xs{display:flex;gap:6px}
+.x.sure{color:var(--bad);border-color:var(--bad)}
+@media (max-width:1020px){.wrap{grid-template-columns:minmax(0,1fr)}.aside{position:static}}
+@media (max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.two{grid-template-columns:minmax(0,1fr)}.bar{grid-template-columns:90px minmax(0,1fr) 120px}}
+@media (prefers-reduced-motion:no-preference){.fl{transition:width .3s}}
+</style>
+</head>
+<body>
+<div class="top">
+  <div>
+    <h1>고객 Claim 현황</h1>
+    <p class="sub" id="status">데이터를 불러오는 중…</p>
+  </div>
+  <div class="filters">
+    <label>고객사<select id="f-c"></select></label>
+    <label>제품명<select id="f-p"></select></label>
+    <label>발생 위치<select id="f-l"><option value="">전체</option><option>Field</option><option>0km</option><option>In-Process</option></select></label>
+    <label>시작 주차<select id="f-from"></select></label>
+    <label>종료 주차<select id="f-to"></select></label>
+    <label>이상 상승폭(ppm)<input id="f-alert" type="number" min="0.1" step="0.1" value="1" style="width:110px"></label>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="main">
+    <section class="panel" id="alert-box"></section>
+    <div class="kpis" id="kpis"></div>
+
+    <section class="panel">
+      <div class="panel-h"><h2>주차별 ppm</h2><span>녹색 점선 = 목표 1ppm · 붉은 점선 = 전체 ppm + 상승폭 · 막대 아래 숫자는 Claim 건수</span></div>
+      <div id="trend"></div>
+    </section>
+
+    <div class="two">
+      <section class="panel"><div class="panel-h"><h2>고객사별 ppm</h2><span>ppm 높은 순</span></div><div class="bars" id="by-c"></div></section>
+      <section class="panel">
+        <div class="panel-h"><h2>제품별 ppm</h2></div><div class="bars" id="by-p"></div>
+        <div class="panel-h" style="margin-top:18px"><h2>발생 위치</h2><span id="loc-n"></span></div>
+        <div class="loc" id="loc"></div><div class="legend" id="loc-l"></div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-h"><h2>고객 × 월 히트맵</h2><span>셀 숫자는 ppm · 진할수록 선택 조건 전체 ppm보다 높음 · “·”는 해당 주차 출하 없음</span></div>
+      <div class="scroll" id="heat"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-h"><h2>이상 구간</h2><label class="hint" style="display:flex;gap:6px;align-items:center">비교 단위<select id="a-unit"><option value="pw">제품 × 주차</option><option value="pwc">제품 × 주차 × 고객</option></select></label></div>
+      <p class="hint" style="margin:0 0 10px" id="anom-s"></p>
+      <div class="scroll" id="anom"></div>
+    </section>
+  </div>
+
+  <aside class="aside">
+    <section class="panel">
+      <div class="panel-h"><h2>Claim 입력</h2><span>저장 즉시 반영</span></div>
+      <form id="form" autocomplete="off">
+        <div class="field"><label for="i-c">고객사</label><div class="cb"><input id="i-c" type="text" placeholder="예: Apple" autocomplete="off"></div></div>
+        <div class="field"><label for="i-w">주차 (예: 26_04)</label><div class="cb"><input id="i-w" type="text" placeholder="26_04" maxlength="5" autocomplete="off"></div></div>
+        <div class="field"><label for="i-p">제품명</label><div class="cb"><input id="i-p" type="text" placeholder="제품명 선택 또는 입력" autocomplete="off"></div></div>
+        <div class="field"><span>발생 위치</span>
+          <div class="seg">
+            <label><input type="radio" name="loc" value="Field" checked>Field</label>
+            <label><input type="radio" name="loc" value="0km">0km</label>
+            <label><input type="radio" name="loc" value="In-Process">In-Process</label>
+          </div>
+        </div>
+        <button class="btn" id="submit" type="submit">Claim 등록</button>
+        <div class="msg" id="msg" role="status"></div>
+      </form>
+      <datalist id="dl-c"></datalist><datalist id="dl-w"></datalist><datalist id="dl-p"></datalist>
+    </section>
+
+    <section class="panel">
+      <div class="panel-h"><h2>웹페이지에서 가져오기</h2></div>
+      <div class="field"><label for="w-url">웹페이지 URL</label><input id="w-url" type="text" placeholder="https://" autocomplete="off"></div>
+      <div class="msg" id="w-sum" role="status" style="margin:0 0 8px"></div>
+      <button class="btn" id="w-go" type="button">URL에서 가져오기</button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-h"><h2>최근 입력</h2><span id="recent-n"></span></div>
+      <ul class="recent" id="recent"></ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-h"><h2>월별 출하량 엑셀 추가</h2></div>
+      <div class="drop" id="drop">
+        <div>엑셀 파일을 여기로 끌어다 놓거나</div>
+        <input id="up" type="file" accept=".xlsx,.xls" multiple style="display:none">
+        <button class="btn ghost" id="up-btn" type="button" style="margin-top:8px">파일 선택 (여러 개 가능)</button>
+      </div>
+      <div class="msg" id="up-msg" role="status"></div>
+      <div id="ship-sum" hidden></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-h"><h2>챗봇 API 연결</h2></div>
+      <div class="c-cfg" style="padding:0;border:0;background:none">
+        <label>base_url<input id="c-base" type="text" placeholder="https://api.example.com/v1" autocomplete="off"></label>
+        <label>api_key<input id="c-key" type="password" autocomplete="off"></label>
+        <label>model_name<input id="c-model" type="text" autocomplete="off"></label>
+        <p class="hint">입력한 값은 저장되지 않고 새로고침하면 지워집니다. 이 페이지에서 외부 API 호출이 막히면 내장 Claude로 자동 전환해 답합니다.</p>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<section id="c-panel" class="c-panel" aria-label="챗봇">
+  <div class="c-head"><b class="c-title"><span class="av av-s"></span>클레미</b><button id="c-close" type="button" class="x" aria-expanded="true">접기</button></div>
+  <div id="c-log" class="c-log"><div class="crow"><span class="av"></span><div class="cm b">안녕하세요, 클레미예요! 지금 대시보드의 Claim 데이터에 대해 물어보세요. 예: “이상이 발생한 고객은?”</div></div></div>
+  <form id="c-form" class="c-form"><textarea id="c-in" rows="2" placeholder="질문을 입력하세요"></textarea><button class="btn" id="c-send" type="submit">보내기</button></form>
+</section>
+
+<script>
+if(!window.claude){(function(){
+  const KEY='claim-dashboard-v1', SEED={"ship":{"26_01":{"w":"26_01","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":338474},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":325441},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":321235},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":342233},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":337154},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":338739},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":294000},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":336208},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":338598},{"c":"Google","p":"K3LLDKDDLL-AASG","q":329947},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":354786},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":309729},{"c":"HP","p":"K3LLDKDDLL-AASG","q":319568},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":356327},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":332263},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":332286},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":273464},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":334365},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":315703},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":321524},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":302434},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":351117},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":316918},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":329161},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":321324},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":285750},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":367359},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":376137},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":324114},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":368088}],"qty":9894446,"at":"2026-11-06T00:00:00Z"},"26_04":{"w":"26_04","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":312691},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":365662},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":348738},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":274825},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":336470},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":377997},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":373854},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":360739},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":275652},{"c":"Google","p":"K3LLDKDDLL-AASG","q":327622},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":334024},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":295338},{"c":"HP","p":"K3LLDKDDLL-AASG","q":354010},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":339693},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":329759},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":343038},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":384185},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":298749},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":329815},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":378840},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":337656},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":366755},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":294470},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":284413},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":332336},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":360749},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":355686},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":344637},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":360665},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":309632}],"qty":10088700,"at":"2026-11-06T00:00:00Z"},"26_07":{"w":"26_07","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":631891},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":683072},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":734959},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":674003},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":669064},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":674883},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":675145},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":631975},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":652874},{"c":"Google","p":"K3LLDKDDLL-AASG","q":594362},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":679008},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":718895},{"c":"HP","p":"K3LLDKDDLL-AASG","q":670334},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":689682},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":667230},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":695274},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":714517},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":698073},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":625895},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":619884},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":623234},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":669770},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":714396},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":646113},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":676668},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":690298},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":648177},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":653519},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":580672},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":674108}],"qty":19977975,"at":"2026-11-06T00:00:00Z"},"26_10":{"w":"26_10","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":362678},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":354208},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":329408},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":291505},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":331082},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":336668},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":320881},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":303137},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":321285},{"c":"Google","p":"K3LLDKDDLL-AASG","q":381773},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":319365},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":327078},{"c":"HP","p":"K3LLDKDDLL-AASG","q":311406},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":320863},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":323019},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":314323},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":334104},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":316056},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":314705},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":365272},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":336141},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":295857},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":319706},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":380061},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":306565},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":328555},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":348433},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":276687},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":330784},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":335775}],"qty":9837380,"at":"2026-11-06T00:00:00Z"},"26_13":{"w":"26_13","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":320645},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":339631},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":366772},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":338713},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":329668},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":320504},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":347300},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":329863},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":350924},{"c":"Google","p":"K3LLDKDDLL-AASG","q":343948},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":298863},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":335211},{"c":"HP","p":"K3LLDKDDLL-AASG","q":350414},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":370908},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":337529},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":327594},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":292651},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":322454},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":312634},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":370543},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":328053},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":327553},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":308380},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":384951},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":311076},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":325099},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":334042},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":335934},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":307746},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":366475}],"qty":10036078,"at":"2026-11-06T00:00:00Z"},"26_16":{"w":"26_16","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":649577},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":748984},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":658622},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":636221},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":770088},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":715036},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":702377},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":676722},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":658826},{"c":"Google","p":"K3LLDKDDLL-AASG","q":642153},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":718571},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":631211},{"c":"HP","p":"K3LLDKDDLL-AASG","q":568352},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":656459},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":565791},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":630670},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":696778},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":654475},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":623745},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":661258},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":718859},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":724035},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":586802},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":676883},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":683904},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":676178},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":704268},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":602271},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":694175},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":652554}],"qty":19985845,"at":"2026-11-06T00:00:00Z"},"26_19":{"w":"26_19","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":360765},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":327109},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":319374},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":345486},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":323715},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":318035},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":285225},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":346996},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":328521},{"c":"Google","p":"K3LLDKDDLL-AASG","q":291853},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":330308},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":319684},{"c":"HP","p":"K3LLDKDDLL-AASG","q":333724},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":346839},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":329912},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":295283},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":340051},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":337506},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":298100},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":363320},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":336993},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":362512},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":305757},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":387854},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":360426},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":329746},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":303897},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":315788},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":350958},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":326048}],"qty":9921785,"at":"2026-11-06T00:00:00Z"},"26_22":{"w":"26_22","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":340574},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":390299},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":296695},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":343268},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":344336},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":350269},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":400769},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":319689},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":340087},{"c":"Google","p":"K3LLDKDDLL-AASG","q":314202},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":345483},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":275502},{"c":"HP","p":"K3LLDKDDLL-AASG","q":303962},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":317611},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":342018},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":300205},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":348703},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":352691},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":314695},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":330781},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":313783},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":336087},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":349162},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":328165},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":304427},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":349718},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":365779},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":336530},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":299940},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":365154}],"qty":10020584,"at":"2026-11-06T00:00:00Z"},"26_25":{"w":"26_25","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":728660},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":721290},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":681199},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":574938},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":694522},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":596385},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":646578},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":663954},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":687093},{"c":"Google","p":"K3LLDKDDLL-AASG","q":650596},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":688655},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":652381},{"c":"HP","p":"K3LLDKDDLL-AASG","q":697774},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":708049},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":627999},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":628066},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":730885},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":619650},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":679006},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":654836},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":765843},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":623910},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":722177},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":657740},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":663535},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":612515},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":664897},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":697746},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":665384},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":663146}],"qty":20069409,"at":"2026-11-06T00:00:00Z"},"26_28":{"w":"26_28","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":341417},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":376997},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":382007},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":312218},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":339284},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":345083},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":347353},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":349021},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":269457},{"c":"Google","p":"K3LLDKDDLL-AASG","q":333668},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":308950},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":333961},{"c":"HP","p":"K3LLDKDDLL-AASG","q":314914},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":334639},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":330350},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":279944},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":333625},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":342863},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":357889},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":332651},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":300279},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":319367},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":317549},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":318591},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":337741},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":312106},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":341149},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":309201},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":363155},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":331200}],"qty":9916629,"at":"2026-11-06T00:00:00Z"},"26_31":{"w":"26_31","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":311003},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":317928},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":354237},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":337277},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":328670},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":302496},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":385218},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":341127},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":290709},{"c":"Google","p":"K3LLDKDDLL-AASG","q":364139},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":355450},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":318995},{"c":"HP","p":"K3LLDKDDLL-AASG","q":297952},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":284938},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":254579},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":359344},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":349650},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":325161},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":386821},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":325858},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":304072},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":359084},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":346445},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":330961},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":394811},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":331469},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":352270},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":316496},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":383273},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":372736}],"qty":10083169,"at":"2026-11-06T00:00:00Z"},"26_34":{"w":"26_34","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":637679},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":746358},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":637221},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":715460},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":687784},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":731450},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":667621},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":708080},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":693691},{"c":"Google","p":"K3LLDKDDLL-AASG","q":667230},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":632663},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":662403},{"c":"HP","p":"K3LLDKDDLL-AASG","q":637515},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":690639},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":668512},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":711685},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":593802},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":686002},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":638300},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":690732},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":607281},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":684036},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":631446},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":606191},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":619377},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":685882},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":686736},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":568696},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":637583},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":628788}],"qty":19860843,"at":"2026-11-06T00:00:00Z"},"26_37":{"w":"26_37","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":630570},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":698988},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":697910},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":643035},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":699657},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":733336},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":701124},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":647358},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":642731},{"c":"Google","p":"K3LLDKDDLL-AASG","q":666319},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":688398},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":700665},{"c":"HP","p":"K3LLDKDDLL-AASG","q":699544},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":615836},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":675195},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":680567},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":695805},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":631576},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":626127},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":649264},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":650102},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":623826},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":680182},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":638824},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":618291},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":653714},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":689964},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":677072},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":662646},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":683178}],"qty":20001804,"at":"2026-11-06T00:00:00Z"},"26_40":{"w":"26_40","rows":[{"c":"Amazon","p":"K3LLDKDDLL-AASG","q":698988},{"c":"Amazon","p":"K4RTMQ8XZP-BB7H","q":664335},{"c":"Amazon","p":"K5WWNHT2CA-CC3D","q":661782},{"c":"Apple","p":"K3LLDKDDLL-AASG","q":619183},{"c":"Apple","p":"K4RTMQ8XZP-BB7H","q":654679},{"c":"Apple","p":"K5WWNHT2CA-CC3D","q":664540},{"c":"Dell","p":"K3LLDKDDLL-AASG","q":611946},{"c":"Dell","p":"K4RTMQ8XZP-BB7H","q":728463},{"c":"Dell","p":"K5WWNHT2CA-CC3D","q":601691},{"c":"Google","p":"K3LLDKDDLL-AASG","q":712072},{"c":"Google","p":"K4RTMQ8XZP-BB7H","q":659052},{"c":"Google","p":"K5WWNHT2CA-CC3D","q":644078},{"c":"HP","p":"K3LLDKDDLL-AASG","q":618926},{"c":"HP","p":"K4RTMQ8XZP-BB7H","q":671183},{"c":"HP","p":"K5WWNHT2CA-CC3D","q":702251},{"c":"Lenovo","p":"K3LLDKDDLL-AASG","q":672122},{"c":"Lenovo","p":"K4RTMQ8XZP-BB7H","q":634929},{"c":"Lenovo","p":"K5WWNHT2CA-CC3D","q":694420},{"c":"Microsoft","p":"K3LLDKDDLL-AASG","q":688665},{"c":"Microsoft","p":"K4RTMQ8XZP-BB7H","q":689552},{"c":"Microsoft","p":"K5WWNHT2CA-CC3D","q":719921},{"c":"Samsung","p":"K3LLDKDDLL-AASG","q":698236},{"c":"Samsung","p":"K4RTMQ8XZP-BB7H","q":700506},{"c":"Samsung","p":"K5WWNHT2CA-CC3D","q":696934},{"c":"Sony","p":"K3LLDKDDLL-AASG","q":625620},{"c":"Sony","p":"K4RTMQ8XZP-BB7H","q":666453},{"c":"Sony","p":"K5WWNHT2CA-CC3D","q":624857},{"c":"Xiaomi","p":"K3LLDKDDLL-AASG","q":685653},{"c":"Xiaomi","p":"K4RTMQ8XZP-BB7H","q":697310},{"c":"Xiaomi","p":"K5WWNHT2CA-CC3D","q":684766}],"qty":20093113,"at":"2026-11-06T00:00:00Z"}},"claims":{"c001":{"c":"Amazon","w":"26_01","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:01:00Z"},"c002":{"c":"Apple","w":"26_01","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:02:00Z"},"c003":{"c":"Apple","w":"26_01","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:03:00Z"},"c004":{"c":"HP","w":"26_01","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:04:00Z"},"c005":{"c":"HP","w":"26_01","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:05:00Z"},"c006":{"c":"HP","w":"26_01","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:06:00Z"},"c007":{"c":"Samsung","w":"26_01","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:07:00Z"},"c008":{"c":"Sony","w":"26_01","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:08:00Z"},"c009":{"c":"Sony","w":"26_01","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:09:00Z"},"c010":{"c":"Amazon","w":"26_04","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:10:00Z"},"c011":{"c":"Apple","w":"26_04","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T00:11:00Z"},"c012":{"c":"Apple","w":"26_04","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:12:00Z"},"c013":{"c":"Dell","w":"26_04","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:13:00Z"},"c014":{"c":"Google","w":"26_04","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T00:14:00Z"},"c015":{"c":"Lenovo","w":"26_04","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T00:15:00Z"},"c016":{"c":"Lenovo","w":"26_04","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:16:00Z"},"c017":{"c":"Sony","w":"26_04","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:17:00Z"},"c018":{"c":"Xiaomi","w":"26_04","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T00:18:00Z"},"c019":{"c":"Amazon","w":"26_07","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:19:00Z"},"c020":{"c":"Amazon","w":"26_07","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T00:20:00Z"},"c021":{"c":"Amazon","w":"26_07","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:21:00Z"},"c022":{"c":"Apple","w":"26_07","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:22:00Z"},"c023":{"c":"Apple","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:23:00Z"},"c024":{"c":"Google","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:24:00Z"},"c025":{"c":"HP","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T00:25:00Z"},"c026":{"c":"Lenovo","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:26:00Z"},"c027":{"c":"Lenovo","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T00:27:00Z"},"c028":{"c":"Lenovo","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T00:28:00Z"},"c029":{"c":"Lenovo","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:29:00Z"},"c030":{"c":"Microsoft","w":"26_07","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:30:00Z"},"c031":{"c":"Microsoft","w":"26_07","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:31:00Z"},"c032":{"c":"Samsung","w":"26_07","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:32:00Z"},"c033":{"c":"Samsung","w":"26_07","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:33:00Z"},"c034":{"c":"Sony","w":"26_07","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:34:00Z"},"c035":{"c":"Sony","w":"26_07","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:35:00Z"},"c036":{"c":"Sony","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:36:00Z"},"c037":{"c":"Xiaomi","w":"26_07","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T00:37:00Z"},"c038":{"c":"Xiaomi","w":"26_07","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:38:00Z"},"c039":{"c":"Xiaomi","w":"26_07","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:39:00Z"},"c040":{"c":"Amazon","w":"26_10","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:40:00Z"},"c041":{"c":"Dell","w":"26_10","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T00:41:00Z"},"c042":{"c":"Google","w":"26_10","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:42:00Z"},"c043":{"c":"HP","w":"26_10","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T00:43:00Z"},"c044":{"c":"HP","w":"26_10","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T00:44:00Z"},"c045":{"c":"Lenovo","w":"26_10","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T00:45:00Z"},"c046":{"c":"Microsoft","w":"26_10","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T00:46:00Z"},"c047":{"c":"Samsung","w":"26_10","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:47:00Z"},"c048":{"c":"Samsung","w":"26_10","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T00:48:00Z"},"c049":{"c":"Sony","w":"26_10","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:49:00Z"},"c050":{"c":"Amazon","w":"26_13","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T00:50:00Z"},"c051":{"c":"Dell","w":"26_13","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:51:00Z"},"c052":{"c":"HP","w":"26_13","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:52:00Z"},"c053":{"c":"Lenovo","w":"26_13","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:53:00Z"},"c054":{"c":"Lenovo","w":"26_13","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T00:54:00Z"},"c055":{"c":"Microsoft","w":"26_13","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T00:55:00Z"},"c056":{"c":"Amazon","w":"26_16","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T00:56:00Z"},"c057":{"c":"Amazon","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T00:57:00Z"},"c058":{"c":"Apple","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T00:58:00Z"},"c059":{"c":"Apple","w":"26_16","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T00:59:00Z"},"c060":{"c":"Apple","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T01:00:00Z"},"c061":{"c":"Apple","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T01:01:00Z"},"c062":{"c":"Apple","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T01:02:00Z"},"c063":{"c":"Google","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:03:00Z"},"c064":{"c":"Google","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T01:04:00Z"},"c065":{"c":"Google","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T01:05:00Z"},"c066":{"c":"HP","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:06:00Z"},"c067":{"c":"HP","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:07:00Z"},"c068":{"c":"HP","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:08:00Z"},"c069":{"c":"Lenovo","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:09:00Z"},"c070":{"c":"Lenovo","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:10:00Z"},"c071":{"c":"Lenovo","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T01:11:00Z"},"c072":{"c":"Lenovo","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T01:12:00Z"},"c073":{"c":"Lenovo","w":"26_16","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:13:00Z"},"c074":{"c":"Microsoft","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:14:00Z"},"c075":{"c":"Microsoft","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:15:00Z"},"c076":{"c":"Microsoft","w":"26_16","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:16:00Z"},"c077":{"c":"Microsoft","w":"26_16","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:17:00Z"},"c078":{"c":"Samsung","w":"26_16","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:18:00Z"},"c079":{"c":"Sony","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:19:00Z"},"c080":{"c":"Xiaomi","w":"26_16","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:20:00Z"},"c081":{"c":"Amazon","w":"26_19","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T01:21:00Z"},"c082":{"c":"HP","w":"26_19","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:22:00Z"},"c083":{"c":"Lenovo","w":"26_19","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:23:00Z"},"c084":{"c":"Microsoft","w":"26_19","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:24:00Z"},"c085":{"c":"Samsung","w":"26_19","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T01:25:00Z"},"c086":{"c":"Samsung","w":"26_19","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:26:00Z"},"c087":{"c":"Samsung","w":"26_19","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:27:00Z"},"c088":{"c":"Xiaomi","w":"26_19","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T01:28:00Z"},"c089":{"c":"Dell","w":"26_22","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T01:29:00Z"},"c090":{"c":"Google","w":"26_22","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T01:30:00Z"},"c091":{"c":"Google","w":"26_22","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T01:31:00Z"},"c092":{"c":"Google","w":"26_22","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:32:00Z"},"c093":{"c":"Lenovo","w":"26_22","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:33:00Z"},"c094":{"c":"Samsung","w":"26_22","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:34:00Z"},"c095":{"c":"Xiaomi","w":"26_22","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T01:35:00Z"},"c096":{"c":"Amazon","w":"26_25","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T01:36:00Z"},"c097":{"c":"Amazon","w":"26_25","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:37:00Z"},"c098":{"c":"Amazon","w":"26_25","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:38:00Z"},"c099":{"c":"Amazon","w":"26_25","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:39:00Z"},"c100":{"c":"Apple","w":"26_25","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:40:00Z"},"c101":{"c":"Dell","w":"26_25","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:41:00Z"},"c102":{"c":"Google","w":"26_25","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:42:00Z"},"c103":{"c":"Google","w":"26_25","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T01:43:00Z"},"c104":{"c":"Lenovo","w":"26_25","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:44:00Z"},"c105":{"c":"Lenovo","w":"26_25","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:45:00Z"},"c106":{"c":"Lenovo","w":"26_25","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:46:00Z"},"c107":{"c":"Lenovo","w":"26_25","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T01:47:00Z"},"c108":{"c":"Sony","w":"26_25","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T01:48:00Z"},"c109":{"c":"Xiaomi","w":"26_25","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:49:00Z"},"c110":{"c":"Apple","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T01:50:00Z"},"c111":{"c":"Dell","w":"26_28","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T01:51:00Z"},"c112":{"c":"Dell","w":"26_28","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T01:52:00Z"},"c113":{"c":"Google","w":"26_28","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:53:00Z"},"c114":{"c":"HP","w":"26_28","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T01:54:00Z"},"c115":{"c":"Microsoft","w":"26_28","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:55:00Z"},"c116":{"c":"Microsoft","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T01:56:00Z"},"c117":{"c":"Samsung","w":"26_28","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T01:57:00Z"},"c118":{"c":"Xiaomi","w":"26_28","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T01:58:00Z"},"c119":{"c":"Xiaomi","w":"26_28","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T01:59:00Z"},"c120":{"c":"Amazon","w":"26_31","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T02:00:00Z"},"c121":{"c":"Apple","w":"26_31","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T02:01:00Z"},"c122":{"c":"Apple","w":"26_31","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:02:00Z"},"c123":{"c":"Dell","w":"26_31","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:03:00Z"},"c124":{"c":"Google","w":"26_31","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:04:00Z"},"c125":{"c":"Lenovo","w":"26_31","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T02:05:00Z"},"c126":{"c":"Sony","w":"26_31","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:06:00Z"},"c127":{"c":"Apple","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:07:00Z"},"c128":{"c":"Apple","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:08:00Z"},"c129":{"c":"Apple","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:09:00Z"},"c130":{"c":"Apple","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:10:00Z"},"c131":{"c":"Apple","w":"26_34","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:11:00Z"},"c132":{"c":"Dell","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:12:00Z"},"c133":{"c":"Dell","w":"26_34","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T02:13:00Z"},"c134":{"c":"Google","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T02:14:00Z"},"c135":{"c":"Google","w":"26_34","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:15:00Z"},"c136":{"c":"HP","w":"26_34","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T02:16:00Z"},"c137":{"c":"Lenovo","w":"26_34","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:17:00Z"},"c138":{"c":"Microsoft","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:18:00Z"},"c139":{"c":"Microsoft","w":"26_34","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:19:00Z"},"c140":{"c":"Microsoft","w":"26_34","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T02:20:00Z"},"c141":{"c":"Microsoft","w":"26_34","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T02:21:00Z"},"c142":{"c":"Samsung","w":"26_34","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:22:00Z"},"c143":{"c":"Sony","w":"26_34","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:23:00Z"},"c144":{"c":"Sony","w":"26_34","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:24:00Z"},"c145":{"c":"Amazon","w":"26_37","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:25:00Z"},"c146":{"c":"Apple","w":"26_37","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:26:00Z"},"c147":{"c":"Apple","w":"26_37","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:27:00Z"},"c148":{"c":"Dell","w":"26_37","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T02:28:00Z"},"c149":{"c":"Dell","w":"26_37","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:29:00Z"},"c150":{"c":"Dell","w":"26_37","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T02:30:00Z"},"c151":{"c":"HP","w":"26_37","p":"K3LLDKDDLL-AASG","loc":"In-Process","at":"2026-11-05T02:31:00Z"},"c152":{"c":"HP","w":"26_37","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T02:32:00Z"},"c153":{"c":"HP","w":"26_37","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:33:00Z"},"c154":{"c":"Microsoft","w":"26_37","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T02:34:00Z"},"c155":{"c":"Microsoft","w":"26_37","p":"K5WWNHT2CA-CC3D","loc":"Field","at":"2026-11-05T02:35:00Z"},"c156":{"c":"Microsoft","w":"26_37","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T02:36:00Z"},"c157":{"c":"Samsung","w":"26_37","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T02:37:00Z"},"c158":{"c":"Samsung","w":"26_37","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T02:38:00Z"},"c159":{"c":"Sony","w":"26_37","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T02:39:00Z"},"c160":{"c":"Xiaomi","w":"26_37","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:40:00Z"},"c161":{"c":"Xiaomi","w":"26_37","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:41:00Z"},"c162":{"c":"Apple","w":"26_40","p":"K3LLDKDDLL-AASG","loc":"Field","at":"2026-11-05T02:42:00Z"},"c163":{"c":"Dell","w":"26_40","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-05T02:43:00Z"},"c164":{"c":"Dell","w":"26_40","p":"K5WWNHT2CA-CC3D","loc":"0km","at":"2026-11-05T02:44:00Z"},"c165":{"c":"Google","w":"26_40","p":"K3LLDKDDLL-AASG","loc":"0km","at":"2026-11-05T02:45:00Z"},"c166":{"c":"Google","w":"26_40","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:46:00Z"},"c167":{"c":"Lenovo","w":"26_40","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-05T02:47:00Z"},"c168":{"c":"Microsoft","w":"26_40","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T02:48:00Z"},"c169":{"c":"Xiaomi","w":"26_40","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-05T02:49:00Z"},"c170":{"c":"Xiaomi","w":"26_40","p":"K5WWNHT2CA-CC3D","loc":"In-Process","at":"2026-11-05T02:50:00Z"},"c171":{"c":"Dell","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-06T09:01:00Z"},"c172":{"c":"Dell","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-06T09:02:00Z"},"c173":{"c":"Dell","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-06T09:03:00Z"},"c174":{"c":"Dell","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"Field","at":"2026-11-06T09:04:00Z"},"c175":{"c":"Dell","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-06T09:05:00Z"},"c176":{"c":"Dell","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"0km","at":"2026-11-06T09:06:00Z"},"c177":{"c":"Dell","w":"26_28","p":"K4RTMQ8XZP-BB7H","loc":"In-Process","at":"2026-11-06T09:07:00Z"}}};
+  let data=null; try{data=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
+  if(!data||!data.ship||!data.claims) data=SEED;
+  const L={}; const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){}};
+  const snap=col=>({docs:Object.entries(data[col]).map(([id,d])=>({id,exists:true,data:()=>d}))});
+  const emit=col=>{(L[col]||[]).forEach(f=>f(snap(col)))};
+  const db={
+    collection(col){return {
+      onSnapshot(next){(L[col]=L[col]||[]).push(next);setTimeout(()=>next(snap(col)),0);return()=>{L[col]=L[col].filter(f=>f!==next)}},
+      async add(d){const id='n'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);data[col][id]=d;save();emit(col);return {id}}
+    }},
+    doc(path){const p=path.split('/'),col=p[0],id=p[1];return {
+      async get(){const d=data[col]&&data[col][id];return {exists:!!d,data:()=>d}},
+      async set(d){data[col][id]=d;save();emit(col)},
+      async delete(){delete data[col][id];save();emit(col)}
+    }}
+  };
+  window.claude={use:async n=>n==='db'?db:null};
+})();}
+</script>
+<script>
+(function(){
+const TARGET=1;
+const LOCS=['Field','0km','In-Process'];
+const LOCCOL={'Field':'var(--accent)','0km':'var(--warn)','In-Process':'var(--ok)'};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtN=n=>Math.round(n).toLocaleString('ko-KR');
+const fmtP=v=>v==null?'—':(v>=10?v.toFixed(0):v.toFixed(1));
+let db=null, ships=new Map(), claims=[], F={c:'',p:'',l:'',from:'',to:''}, ALERT=1, UNIT='pw', BASE=0, CTX='', lastLists='';
+let shipReady=false, claimReady=false;
+
+function setStatus(){
+  if(!db){ $('status').textContent='저장소에 연결되지 않아 입력과 저장이 비활성화되었습니다.'; return; }
+  if(!shipReady||!claimReady){ $('status').textContent='데이터를 불러오는 중…'; return; }
+  const w=[...ships.keys()].sort();
+  $('status').textContent='Claim '+fmtN(claims.length)+'건 · 출하 '+(w.length?w[0]+' ~ '+w[w.length-1]:'데이터 없음');
+}
+
+/* ---------- data helpers ---------- */
+function lists(){
+  const C=new Set(),P=new Set(),W=new Set();
+  for(const [w,d] of ships){W.add(w);for(const r of d.rows){C.add(r.c);P.add(r.p)}}
+  for(const x of claims){C.add(x.c);P.add(x.p);W.add(x.w)}
+  return {C:[...C].sort(),P:[...P].sort(),W:[...W].sort()};
+}
+function compute(){
+  const inW=w=>(!F.from||w>=F.from)&&(!F.to||w<=F.to);
+  const sRows=[];
+  for(const [w,d] of ships) if(inW(w)) for(const r of d.rows) if((!F.c||r.c===F.c)&&(!F.p||r.p===F.p)) sRows.push({w,c:r.c,p:r.p,q:r.q});
+  const cl=claims.filter(x=>inW(x.w)&&(!F.c||x.c===F.c)&&(!F.p||x.p===F.p)&&(!F.l||x.loc===F.l));
+  return {sRows,cl};
+}
+function group(sRows,cl,keyS,keyC){
+  const m=new Map();
+  const g=k=>{let o=m.get(k);if(!o){o={q:0,n:0};m.set(k,o)}return o};
+  for(const r of sRows) g(keyS(r)).q+=r.q;
+  for(const x of cl) g(keyC(x)).n+=1;
+  return m;
+}
+const ppm=o=>o.q>0?o.n/o.q*1e6:null;
+/* ALERT = 이상 상승폭(ppm), BASE = 선택 조건의 전체 ppm */
+const sev=v=>v==null?'':v-BASE>=ALERT?'bad':v>TARGET?'warn':'ok';
+const sevCol=v=>v==null?'var(--muted)':v-BASE>=ALERT?'var(--bad)':v>TARGET?'var(--warn)':'var(--accent)';
+function findAnom(sRows,cl){
+  const tot=group(sRows,cl,r=>r.p,x=>x.p);
+  const key=UNIT==='pwc'?(p,w,c)=>p+'|'+w+'|'+c:(p,w)=>p+'|'+w;
+  const g=group(sRows,cl,r=>key(r.p,r.w,r.c),x=>key(x.p,x.w,x.c));
+  const out=[];
+  for(const [k,o] of g){
+    if(!(o.q>0)||!o.n) continue;
+    const [p,w,c]=k.split('|'), b=ppm(tot.get(p)), v=ppm(o);
+    if(v-b>=ALERT-1e-9) out.push({p,w,c,o,v,b});
+  }
+  return out.sort((x,y)=>(y.v-y.b)-(x.v-x.b)||y.o.n-x.o.n);
+}
+function anomCustomers(rows,cl){
+  const m=new Map();
+  const add=(c,d)=>{let o=m.get(c);if(!o){o={c,n:0,items:[]};m.set(c,o)}o.n+=d.n;o.items.push(d)};
+  for(const r of rows){
+    const rise=r.v-r.b;
+    if(UNIT==='pwc'){add(r.c,{p:r.p,w:r.w,n:r.o.n,rise});continue}
+    const by=new Map();
+    for(const x of cl) if(x.p===r.p&&x.w===r.w) by.set(x.c,(by.get(x.c)||0)+1);
+    [...by].sort((a,b)=>b[1]-a[1]).forEach(([c,n],i)=>{ if(i===0||n/r.o.n>=0.3) add(c,{p:r.p,w:r.w,n,rise}) });
+  }
+  return [...m.values()].sort((a,b)=>b.n-a.n);
+}
+function renderAlert(rows,cl){
+  const cs=anomCustomers(rows,cl);
+  const head='<div class="panel-h"><h2>이상 발생 고객'+(cs.length?' '+cs.length+'곳':'')+'</h2><span>제품 전체 ppm보다 +'+ALERT+'ppm 이상 상승한 구간의 Claim 기준</span></div>';
+  if(!cs.length){$('alert-box').innerHTML=head+'<div class="okline">이상이 발생한 고객이 없습니다.</div>';return}
+  $('alert-box').innerHTML=head+'<div class="alerts">'+cs.map(c=>{
+    const it=c.items.slice(0,3).map(i=>'<div class="al-i"><span class="pn2">'+esc(i.p)+'</span><span>'+esc(i.w)+' · +'+i.rise.toFixed(1)+'ppm · '+i.n+'건</span></div>').join('');
+    const more=c.items.length>3?'<div class="al-i">외 '+(c.items.length-3)+'개 구간</div>':'';
+    return '<div class="al"><div class="al-h"><b>'+esc(c.c)+'</b><span class="al-n">'+c.n+'건</span></div><div class="al-d">'+it+more+'</div></div>';
+  }).join('')+'</div>';
+}
+
+/* ---------- filters ---------- */
+function fillSelect(el,items,allLabel,cur){
+  el.innerHTML='<option value="">'+allLabel+'</option>'+items.map(i=>'<option value="'+esc(i)+'">'+esc(i)+'</option>').join('');
+  el.value=items.includes(cur)?cur:'';
+}
+function refreshLists(){
+  const L=lists(), key=JSON.stringify(L);
+  if(key===lastLists) return; lastLists=key;
+  fillSelect($('f-c'),L.C,'전체',F.c); F.c=$('f-c').value;
+  fillSelect($('f-p'),L.P,'전체',F.p); F.p=$('f-p').value;
+  fillSelect($('f-from'),L.W,'처음부터',F.from); F.from=$('f-from').value;
+  fillSelect($('f-to'),L.W,'끝까지',F.to); F.to=$('f-to').value;
+  $('dl-c').innerHTML=L.C.map(i=>'<option value="'+esc(i)+'">').join('');
+  $('dl-p').innerHTML=L.P.map(i=>'<option value="'+esc(i)+'">').join('');
+  $('dl-w').innerHTML=L.W.map(i=>'<option value="'+esc(i)+'">').join('');
+}
+
+/* ---------- render ---------- */
+function render(){
+  setStatus(); refreshLists();
+  const {sRows,cl}=compute();
+  const Q=sRows.reduce((a,r)=>a+r.q,0), N=cl.length;
+  const total={q:Q,n:N}, tp=ppm(total); BASE=tp||0;
+  const combo=group(sRows,cl,r=>r.w+'|'+r.c+'|'+r.p,x=>x.w+'|'+x.c+'|'+x.p);
+  let orphan=0; for(const o of combo.values()) if(o.q===0) orphan+=o.n;
+  const anoms=findAnom(sRows,cl), abn=anoms.length;
+  $('kpis').innerHTML=
+    kpi('전체 ppm',fmtP(tp),sev(tp),'목표 '+TARGET+'ppm')+
+    kpi('Claim 건수',fmtN(N),'',orphan?'출하 없는 주차 '+orphan+'건 포함':'선택 조건 기준')+
+    kpi('출하 수량',fmtN(Q),'','개')+
+    kpi('이상 구간',fmtN(abn),abn?'bad':'ok','제품 전체 ppm보다 +'+ALERT+'ppm 이상 상승');
+  renderTrend(sRows,cl); renderBars(sRows,cl); renderLoc(cl); renderHeat(sRows,cl); CTX=buildCtx(sRows,cl,tp,anoms); renderAnom(anoms); renderAlert(anoms,cl); renderRecent(); renderShipSum();
+}
+const kpi=(t,v,s,sm)=>'<div class="kpi"><b>'+t+'</b><div class="v '+s+'">'+v+'</div><small>'+esc(sm)+'</small></div>';
+
+function renderTrend(sRows,cl){
+  const g=group(sRows,cl,r=>r.w,x=>x.w), ws=[...g.keys()].sort();
+  if(!ws.length){$('trend').innerHTML='<div class="empty">표시할 데이터가 없습니다.</div>';return}
+  const W=760,H=230,ml=34,mr=8,mt=14,mb=44,pw=W-ml-mr,ph=H-mt-mb;
+  const vals=ws.map(w=>ppm(g.get(w))), max=Math.max(TARGET*1.5,(BASE+ALERT)*1.15,...vals.filter(v=>v!=null));
+  const y=v=>mt+ph-(v/max)*ph, bw=Math.min(40,pw/ws.length*0.6), step=pw/ws.length;
+  let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="주차별 ppm">';
+  const ticks=4; for(let i=0;i<=ticks;i++){const v=max*i/ticks;
+    s+='<line x1="'+ml+'" x2="'+(W-mr)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--line)" stroke-width="1"/><text x="'+(ml-6)+'" y="'+(y(v)+4)+'" text-anchor="end" font-size="13.5" fill="var(--muted)" font-family="var(--mono)">'+v.toFixed(1)+'</text>';}
+  s+='<line x1="'+ml+'" x2="'+(W-mr)+'" y1="'+y(TARGET)+'" y2="'+y(TARGET)+'" stroke="var(--ok)" stroke-width="1.5" stroke-dasharray="5 4"/>';
+  s+='<line x1="'+ml+'" x2="'+(W-mr)+'" y1="'+y(BASE+ALERT)+'" y2="'+y(BASE+ALERT)+'" stroke="var(--bad)" stroke-width="1.5" stroke-dasharray="2 3"/>';
+  ws.forEach((w,i)=>{const o=g.get(w),v=ppm(o),cx=ml+step*i+step/2;
+    if(v!=null){s+='<rect x="'+(cx-bw/2)+'" y="'+y(v)+'" width="'+bw+'" height="'+Math.max(1,mt+ph-y(v))+'" rx="2" fill="'+sevCol(v)+'"><title>'+esc(w)+' · '+v.toFixed(2)+'ppm · '+o.n+'건 / '+fmtN(o.q)+'개</title></rect>';
+      s+='<text x="'+cx+'" y="'+(y(v)-4)+'" text-anchor="middle" font-size="13.5" fill="var(--fg)" font-family="var(--mono)">'+v.toFixed(1)+'</text>';}
+    else s+='<text x="'+cx+'" y="'+(mt+ph-4)+'" text-anchor="middle" font-size="13.5" fill="var(--muted)">출하 없음</text>';
+    s+='<text x="'+cx+'" y="'+(H-24)+'" text-anchor="middle" font-size="14" fill="var(--muted)" font-family="var(--mono)">'+esc(w)+'</text>';
+    s+='<text x="'+cx+'" y="'+(H-8)+'" text-anchor="middle" font-size="14" fill="var(--fg)" font-family="var(--mono)">'+o.n+'건</text>';});
+  $('trend').innerHTML=s+'</svg>';
+}
+function barRows(g){
+  const rows=[...g.entries()].map(([k,o])=>({k,o,v:ppm(o)})).sort((a,b)=>(b.v??-1)-(a.v??-1)||b.o.n-a.o.n);
+  if(!rows.length) return '<div class="empty">표시할 데이터가 없습니다.</div>';
+  const max=Math.max(BASE+ALERT,...rows.map(r=>r.v||0));
+  return rows.map(r=>'<div class="bar"><span class="nm" title="'+esc(r.k)+'">'+esc(r.k)+'</span><span class="tr"><span class="fl" style="display:block;width:'+(r.v==null?0:Math.max(2,r.v/max*100))+'%;background:'+sevCol(r.v)+'"></span></span><span class="rt num"><b>'+fmtP(r.v)+'</b> ppm · '+r.o.n+'건</span></div>').join('');
+}
+function renderBars(sRows,cl){
+  $('by-c').innerHTML=barRows(group(sRows,cl,r=>r.c,x=>x.c));
+  $('by-p').innerHTML=barRows(group(sRows,cl,r=>r.p,x=>x.p));
+}
+function renderLoc(cl){
+  const cnt={}; LOCS.forEach(l=>cnt[l]=0); cl.forEach(x=>{if(cnt[x.loc]!=null)cnt[x.loc]++});
+  const n=cl.length; $('loc-n').textContent=n+'건';
+  $('loc').innerHTML=n?LOCS.map(l=>'<span title="'+l+' '+cnt[l]+'건" style="width:'+(cnt[l]/n*100)+'%;background:'+LOCCOL[l]+'"></span>').join(''):'';
+  $('loc-l').innerHTML=LOCS.map(l=>'<span><i style="background:'+LOCCOL[l]+'"></i>'+l+' <span class="num">'+cnt[l]+'건'+(n?' · '+Math.round(cnt[l]/n*100)+'%':'')+'</span></span>').join('');
+}
+/* 주차 코드(YY_WW, ISO 주차의 목요일이 속한 달) → 월 */
+function monthOf(code){
+  const m=/^(\d{2})_(\d{2})$/.exec(code); if(!m) return code;
+  const y=2000+ +m[1], jan4=new Date(Date.UTC(y,0,4)), dow=(jan4.getUTCDay()+6)%7;
+  const thu=new Date(jan4.getTime()+((-dow)+3+7*(+m[2]-1))*864e5);
+  return thu.getUTCFullYear()+'-'+String(thu.getUTCMonth()+1).padStart(2,'0');
+}
+const monthLabel=k=>{const m=/^(\d{4})-(\d{2})$/.exec(k);return m?m[1].slice(2)+'년 '+(+m[2])+'월':k};
+function renderHeat(sRows,cl){
+  const g=group(sRows,cl,r=>r.c+'|'+monthOf(r.w),x=>x.c+'|'+monthOf(x.w));
+  const cs=[...new Set([...sRows.map(r=>r.c),...cl.map(x=>x.c)])].sort(), ws=[...new Set([...sRows.map(r=>monthOf(r.w)),...cl.map(x=>monthOf(x.w))])].sort();
+  if(!cs.length){$('heat').innerHTML='<div class="empty">표시할 데이터가 없습니다.</div>';return}
+  const multi=new Set(ws.map(k=>k.slice(0,4))).size>1;
+  let h='<table class="heat"><thead><tr><th>고객사</th>'+ws.map(w=>'<th class="r num">'+esc(multi?monthLabel(w):(+w.slice(5))+'월')+'</th>').join('')+'</tr></thead><tbody>';
+  for(const c of cs){h+='<tr><th scope="row" style="color:var(--fg)">'+esc(c)+'</th>';
+    for(const w of ws){const o=g.get(c+'|'+w),v=o?ppm(o):null;
+      if(v==null) h+='<td class="c none">'+(o&&o.n?'?':'·')+'</td>';
+      else{const t=Math.max(0,Math.min(1,(v-BASE)/(ALERT*2)));h+='<td class="c'+(t>.55?' hi':'')+'" style="--t:'+t.toFixed(2)+'" title="'+esc(c)+' '+esc(monthLabel(w))+' · '+o.n+'건 / '+fmtN(o.q)+'개">'+(v===0?'0':v.toFixed(1))+'</td>';}}
+    h+='</tr>';}
+  $('heat').innerHTML=h+'</tbody></table>';
+}
+function renderAnom(rows){
+  const pwc=UNIT==='pwc';
+  $('anom-s').textContent='기준: 제품의 선택 기간 전체 ppm보다 '+(pwc?'해당 주차·고객':'해당 주차')+'의 ppm이 +'+ALERT+'ppm 이상 높으면 이상 구간'+(rows.length?' · '+rows.length+'개'+(rows.length>20?' 중 상위 20개':''):'');
+  if(!rows.length){$('anom').innerHTML='<div class="empty">전체 ppm보다 +'+ALERT+'ppm 이상 상승한 '+(pwc?'주차·고객':'주차')+'가 없습니다.'+(pwc?'':'<br><span class="hint">고객별로 보려면 비교 단위를 “제품 × 주차 × 고객”으로 바꾸세요.</span>')+'</div>';return}
+  $('anom').innerHTML='<table class="anom"><thead><tr><th>제품명</th><th>주차'+(pwc?' · 고객사':'')+'</th><th class="r">전체 → 해당 ppm</th><th class="r">상승폭</th><th class="r">Claim / 출하 수량</th></tr></thead><tbody>'+
+   rows.slice(0,20).map(r=>'<tr><td class="num pn">'+esc(r.p)+(r.o.n<3?' <span class="tag">표본 적음</span>':'')+'</td><td class="num">'+esc(r.w)+(pwc?' · '+esc(r.c):'')+'</td><td class="r num">'+r.b.toFixed(2)+' → '+r.v.toFixed(2)+'</td><td class="r num" style="color:var(--bad);font-weight:500">+'+(r.v-r.b).toFixed(2)+'</td><td class="r num">'+r.o.n+'건 / '+fmtN(r.o.q)+'</td></tr>').join('')+'</tbody></table>';
+}
+let armed=null;
+function renderRecent(){
+  const rec=[...claims].sort((a,b)=>(b.at||'').localeCompare(a.at||'')).slice(0,8);
+  $('recent-n').textContent='전체 '+fmtN(claims.length)+'건 중 8건';
+  if(!rec.length){$('recent').innerHTML='<li class="empty" style="display:block">아직 입력된 Claim이 없습니다. 위 양식으로 첫 Claim을 등록하세요.</li>';return}
+  $('recent').innerHTML=rec.map(x=>'<li><div><span style="color:var(--fg)">'+esc(x.c)+'</span> · <span class="num">'+esc(x.w)+'</span> · '+esc(x.loc)+'<div class="m num">'+esc(x.p)+'</div></div>'+(armed===x.id?'<span class="xs"><button type="button" class="x sure" data-del="'+esc(x.id)+'">삭제</button><button type="button" class="x" data-cancel="1">취소</button></span>':'<button type="button" class="x" data-ask="'+esc(x.id)+'">삭제</button>')+'</li>').join('');
+}
+function renderShipSum(){
+  const w=[...ships.keys()].sort();
+  if(!w.length){$('ship-sum').textContent='등록된 출하 데이터가 없습니다.';return}
+  let q=0; for(const d of ships.values()) q+=d.qty||0;
+  $('ship-sum').textContent=w.length+'개 주차 · 총 '+fmtN(q)+'개 ('+w.join(', ')+')';
+}
+
+/* ---------- events ---------- */
+['c','p','l','from','to'].forEach(k=>$('f-'+k).addEventListener('change',e=>{F[k]=e.target.value;render()}));
+$('f-alert').addEventListener('change',e=>{const v=parseFloat(e.target.value);if(v>0){ALERT=v;render()}});
+$('a-unit').addEventListener('change',e=>{UNIT=e.target.value;render()});
+$('recent').addEventListener('click',async e=>{
+  const t=e.target.closest('[data-ask],[data-del],[data-cancel]'); if(!t||!db) return;
+  if(t.dataset.ask){armed=t.dataset.ask;renderRecent();return}
+  if(t.dataset.cancel){armed=null;renderRecent();return}
+  const id=t.dataset.del;
+  armed=null;
+  try{await db.doc('claims/'+id).delete();}catch(err){say('msg','삭제하지 못했습니다. 권한을 확인하세요.','err')}
+});
+function say(id,t,k){const el=$(id);el.textContent=t;el.className='msg '+(k||'')}
+$('form').addEventListener('submit',async e=>{
+  e.preventDefault(); if(!db) return;
+  const c=$('i-c').value.trim(), w=$('i-w').value.trim(), p=$('i-p').value.trim(), loc=document.querySelector('input[name=loc]:checked').value;
+  if(!c||!p){say('msg','고객사와 제품명을 입력하세요.','err');return}
+  if(!/^\d{2}_\d{2}$/.test(w)){say('msg','주차는 26_04 형식으로 입력하세요.','err');return}
+  $('submit').disabled=true;
+  try{
+    await db.collection('claims').add({c,w,p,loc,at:new Date().toISOString()});
+    say('msg','등록했습니다: '+c+' · '+w+' · '+loc,'ok');
+    $('i-p').value=''; $('i-c').focus();
+  }catch(err){say('msg','저장하지 못했습니다. 편집 권한이 있는지 확인하세요.','err')}
+  $('submit').disabled=false;
+});
+function combo(id,key){
+  const inp=$(id), ul=document.createElement('ul'); ul.className='cb-list'; ul.hidden=true; inp.parentNode.appendChild(ul);
+  let idx=-1;
+  const show=()=>{
+    const q=inp.value.trim().toLowerCase(), items=lists()[key].filter(x=>!q||x.toLowerCase().includes(q)).slice(0,60);
+    if(!items.length||(items.length===1&&items[0].toLowerCase()===q)){ul.hidden=true;return}
+    ul.innerHTML=items.map(x=>'<li role="option">'+esc(x)+'</li>').join(''); ul.hidden=false; idx=-1;
+  };
+  inp.addEventListener('focus',show); inp.addEventListener('input',show); inp.addEventListener('blur',()=>{ul.hidden=true});
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Escape') ul.hidden=true;
+    if(!ul.hidden&&(e.key==='ArrowDown'||e.key==='ArrowUp')){e.preventDefault();const li=[...ul.children];idx=(idx+(e.key==='ArrowDown'?1:-1)+li.length)%li.length;li.forEach((n,i)=>n.classList.toggle('on',i===idx))}
+    if(!ul.hidden&&e.key==='Enter'&&idx>=0){e.preventDefault();inp.value=ul.children[idx].textContent;ul.hidden=true}
+  });
+  ul.addEventListener('mousedown',e=>{const li=e.target.closest('li'); if(li){e.preventDefault();inp.value=li.textContent;ul.hidden=true}});
+}
+combo('i-c','C'); combo('i-w','W'); combo('i-p','P');
+$('up-btn').addEventListener('click',()=>$('up').click());
+(function(){const d=$('drop');
+  ['dragenter','dragover'].forEach(t=>d.addEventListener(t,e=>{e.preventDefault();d.classList.add('over')}));
+  ['dragleave','drop'].forEach(t=>d.addEventListener(t,e=>{e.preventDefault();d.classList.remove('over')}));
+  d.addEventListener('drop',e=>{if(e.dataTransfer&&e.dataTransfer.files.length){try{$('up').files=e.dataTransfer.files;$('up').dispatchEvent(new Event('change'))}catch(err){say('up-msg','끌어다 놓기가 지원되지 않습니다. 파일 선택을 사용하세요.','err')}}});
+})();
+$('up').addEventListener('change',async e=>{
+  const files=[...e.target.files]; e.target.value=''; if(!files.length||!db) return;
+  if(!window.XLSX){say('up-msg','엑셀 처리 모듈을 불러오지 못했습니다.','err');return}
+  say('up-msg','처리 중…');
+  try{
+    const byW=new Map(); let rowsN=0;
+    for(const f of files){
+      const wb=XLSX.read(await f.arrayBuffer(),{type:'array'}), rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+      for(const r of rows){
+        const c=String(r['고객명']||r['고객사']||'').trim(), p=String(r['제품명']||'').trim(), w=String(r['Week code']||r['주차']||'').trim(), q=Number(r['수량']);
+        if(!c||!p||!/^\d{2}_\d{2}$/.test(w)||!(q>0)) continue;
+        let m=byW.get(w); if(!m){m=new Map();byW.set(w,m)}
+        const k=c+'\u0001'+p; m.set(k,(m.get(k)||0)+q); rowsN++;
+      }
+    }
+    if(!byW.size){say('up-msg','읽을 수 있는 행이 없습니다. 열 이름(고객명, 제품명, 수량, Week code)을 확인하세요.','err');return}
+    for(const [w,m] of byW){
+      const ref=db.doc('ship/'+w), snap=await ref.get(), mm=new Map(m);
+      if(snap.exists){for(const r of (snap.data().rows||[])){const k=r.c+'\u0001'+r.p; mm.set(k,(mm.get(k)||0)+r.q)}}
+      const rows=[...mm].map(([k,q])=>{const [c,p]=k.split('\u0001');return {c,p,q}});
+      await ref.set({w,rows,qty:rows.reduce((a,r)=>a+r.q,0),at:new Date().toISOString()});
+    }
+    say('up-msg',[...byW.keys()].sort().join(', ')+' 주차 출하 수량에 더했습니다 ('+fmtN(rowsN)+'행).','ok');
+  }catch(err){say('up-msg','반영하지 못했습니다. 파일 형식과 편집 권한을 확인하세요.','err')}
+});
+
+/* ---------- 웹페이지에서 복사한 표 가져오기 ---------- */
+function parsePaste(text){
+  const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const split=l=>l.includes('\t')?l.split('\t'):(l.includes(',')?l.split(','):l.split(/\s+/));
+  let map={c:0,w:1,p:2,l:3}, start=0;
+  if(lines.length){
+    const h=split(lines[0]).map(x=>x.replace(/\s/g,'').toLowerCase());
+    const idx=ks=>h.findIndex(x=>ks.some(t=>x.includes(t)));
+    const ic=idx(['고객사','고객명','customer']), iw=idx(['주차','week']), ip=idx(['제품','product']), il=idx(['발생위치','위치','location']);
+    if(ic>=0&&iw>=0&&ip>=0&&il>=0){map={c:ic,w:iw,p:ip,l:il};start=1}
+  }
+  const ok=[],bad=[];
+  const LM={'field':'Field','0km':'0km','in-process':'In-Process','inprocess':'In-Process'};
+  for(let i=start;i<lines.length;i++){
+    const cells=split(lines[i]).map(x=>x.trim());
+    const c=cells[map.c], w=cells[map.w], p=cells[map.p], loc=LM[(cells[map.l]||'').toLowerCase().replace(/\s/g,'')];
+    if(c&&p&&/^\d{2}_\d{2}$/.test(w||'')&&loc) ok.push({c,w,p,loc}); else bad.push(i+1);
+  }
+  return {ok,bad};
+}
+function tableToText(doc){const t=doc.querySelector('table');if(!t)return '';return [...t.querySelectorAll('tr')].map(tr=>[...tr.children].map(c=>c.textContent.trim()).join('\t')).join('\n')}
+$('w-go').addEventListener('click',async()=>{
+  const url=$('w-url').value.trim(), el=$('w-sum');
+  if(!db) return;
+  if(!/^https?:\/\//i.test(url)){el.textContent='http:// 또는 https://로 시작하는 주소를 입력하세요.';el.className='msg err';return}
+  $('w-go').disabled=true; el.textContent='페이지를 불러오는 중…'; el.className='msg';
+  try{
+    let res;
+    try{res=await fetch(url)}catch(e){throw new Error('이 페이지에서는 외부 웹페이지를 불러올 수 없습니다. 보안 정책이나 해당 사이트가 접근을 막고 있습니다.')}
+    if(!res.ok) throw new Error('페이지를 불러오지 못했습니다 (HTTP '+res.status+').');
+    const r=parsePaste(tableToText(new DOMParser().parseFromString(await res.text(),'text/html')));
+    if(!r.ok.length) throw new Error('페이지에서 Claim 표를 찾지 못했습니다. 열: 고객사, 주차, 제품명, 발생 위치.');
+    const rows=r.ok.slice(0,500); let n=0;
+    for(const x of rows){await db.collection('claims').add(Object.assign({},x,{at:new Date().toISOString(),src:url.slice(0,300)}));n++;el.textContent=n+' / '+rows.length+'건 등록 중…'}
+    el.textContent=n+'건을 등록했습니다.'+(r.bad.length?' (제외 '+r.bad.length+'줄)':''); el.className='msg ok';
+  }catch(err){el.textContent=err&&err.message?err.message:'가져오지 못했습니다.';el.className='msg err'}
+  $('w-go').disabled=false;
+});
+
+/* ---------- chatbot: API 정보는 입력칸에만 있고 코드·저장소·브라우저 저장에 남기지 않음 ---------- */
+const chatHist=[]; let chatBusy=false;
+function buildCtx(sRows,cl,tp,anoms){
+  const top=(g,n)=>[...g].map(([k,o])=>[k,o,ppm(o)]).sort((a,b)=>(b[2]==null?-1:b[2])-(a[2]==null?-1:a[2])).slice(0,n).map(([k,o,v])=>k+': '+(v==null?'출하 없음':v.toFixed(2)+'ppm')+' ('+o.n+'건 / '+o.q+'개)').join('\n');
+  const Q=sRows.reduce((a,r)=>a+r.q,0);
+  const wk=[...group(sRows,cl,r=>r.w,x=>x.w)].sort((a,b)=>a[0]<b[0]?-1:1).map(([k,o])=>k+': '+(ppm(o)==null?'출하 없음':ppm(o).toFixed(2)+'ppm')+' ('+o.n+'건)').join('\n');
+  return '당신은 고객 Claim 대시보드의 분석 도우미입니다. 아래 현재 화면 데이터만 근거로 한국어로 간결히 답하고, 데이터에 없는 내용은 없다고 말하세요.\n'+
+   '필터: 고객='+(F.c||'전체')+', 제품='+(F.p||'전체')+', 위치='+(F.l||'전체')+', 주차='+(F.from||'처음')+'~'+(F.to||'끝')+'\n'+
+   '전체: ppm '+(tp==null?'없음':tp.toFixed(2))+', Claim '+cl.length+'건, 출하 '+Q+'개. 목표 1ppm. 이상 구간 = 제품 전체 ppm보다 해당 주차(또는 주차·고객) ppm이 +'+ALERT+'ppm 이상 높은 경우\n'+
+   '[고객별]\n'+top(group(sRows,cl,r=>r.c,x=>x.c),12)+'\n[제품별]\n'+top(group(sRows,cl,r=>r.p,x=>x.p),6)+'\n[주차별]\n'+wk+
+   '\n[이상 구간]\n'+(anoms.length?anoms.slice(0,15).map(r=>r.p+' / '+r.w+(r.c?' / '+r.c:'')+': 해당 '+r.v.toFixed(2)+'ppm, 제품 전체 '+r.b.toFixed(2)+'ppm, '+r.o.n+'건').join('\n'):'없음');
+}
+const AVATAR='<svg viewBox="0 0 40 40" aria-hidden="true"><line x1="20" y1="4.5" x2="20" y2="10" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/><circle cx="20" cy="4.5" r="2.6" fill="var(--warn)"/><circle cx="4.5" cy="23" r="3" fill="var(--accent)"/><circle cx="35.5" cy="23" r="3" fill="var(--accent)"/><rect x="5" y="9" width="30" height="28" rx="14" fill="var(--accent)"/><ellipse cx="20" cy="23.5" rx="12" ry="10" fill="#fff"/><circle cx="15" cy="21.5" r="2.3" fill="#14202B"/><circle cx="25" cy="21.5" r="2.3" fill="#14202B"/><circle cx="14.5" cy="20.8" r=".8" fill="#fff"/><circle cx="24.5" cy="20.8" r=".8" fill="#fff"/><circle cx="11.8" cy="26.5" r="2" fill="#F4A6A0" opacity=".85"/><circle cx="28.2" cy="26.5" r="2" fill="#F4A6A0" opacity=".85"/><path d="M17.2 26.4q2.8 2.8 5.6 0" stroke="#14202B" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
+document.querySelectorAll('.av').forEach(e=>{e.innerHTML=AVATAR});
+function addMsg(role,text){
+  const d=document.createElement('div');d.className='cm '+role;d.textContent=text;
+  let el=d;
+  if(role==='b'){el=document.createElement('div');el.className='crow';const a=document.createElement('span');a.className='av';a.innerHTML=AVATAR;el.appendChild(a);el.appendChild(d)}
+  $('c-log').appendChild(el);$('c-log').scrollTop=$('c-log').scrollHeight;return d;
+}
+async function callApi(base,key,model){
+  const url=base.replace(/\/+$/,'')+'/chat/completions';
+  const send=async messages=>{
+    try{ return await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages})}); }
+    catch(e){ const er=new Error('blocked'); er.blocked=true; throw er }
+  };
+  const hist=chatHist.slice(-10).map(m=>({role:m.role,content:m.content}));
+  let r=await send([{role:'system',content:CTX},...hist]);
+  if(r.status===400){
+    const h2=hist.slice(); while(h2.length&&h2[0].role!=='user') h2.shift();
+    if(h2.length){ h2[0]={role:'user',content:CTX+'\n\n질문: '+h2[0].content}; r=await send(h2); }
+  }
+  if(!r.ok){
+    let msg='';
+    try{ const t=await r.text(); try{ const j=JSON.parse(t); msg=(j.error&&(j.error.message||j.error))||j.message||t }catch(_){ msg=t } }catch(_){}
+    throw new Error('API 오류 (HTTP '+r.status+')'+(msg?': '+String(msg).slice(0,300):''));
+  }
+  const j=await r.json(), c=j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
+  return Array.isArray(c)?c.map(x=>x.text||'').join(''):c;
+}
+async function callBuiltin(out){
+  const sample=await claude.use('sample');
+  if(!sample) throw new Error('외부 API에 연결하지 못했습니다. base_url, api_key, model_name과 해당 서버의 CORS 허용 여부를 확인하세요.');
+  const turns=chatHist.slice(-10).map(m=>({role:m.role,content:m.content}));
+  while(turns.length&&turns[0].role!=='user') turns.shift();
+  turns[0]={role:'user',content:CTX+'\n\n질문: '+turns[0].content};
+  const r=await sample(turns,{onText:({text})=>{out.textContent=text},cache:false});
+  return r.text;
+}
+$('c-close').addEventListener('click',()=>{const p=$('c-panel'),m=p.classList.toggle('min');$('c-close').textContent=m?'펼치기':'접기';$('c-close').setAttribute('aria-expanded',String(!m))});
+$('c-in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('c-form').requestSubmit()}});
+$('c-form').addEventListener('submit',async e=>{
+  e.preventDefault(); if(chatBusy) return;
+  const q=$('c-in').value.trim(); if(!q) return;
+  $('c-in').value=''; addMsg('u',q); chatHist.push({role:'user',content:q});
+  chatBusy=true; $('c-send').disabled=true;
+  const out=addMsg('b','…');
+  try{
+    const base=$('c-base').value.trim(), key=$('c-key').value.trim(), model=$('c-model').value.trim();
+    let text, fell=false;
+    if(base||key||model){
+      if(!base||!key||!model) throw new Error('base_url, api_key, model_name을 모두 입력하세요. 내장 Claude를 쓰려면 세 칸을 모두 비우세요.');
+      try{ text=await callApi(base,key,model); }
+      catch(e2){ if(e2&&e2.blocked){ text=await callBuiltin(out); fell=true } else throw e2 }
+    } else text=await callBuiltin(out);
+    out.textContent=(text||'(빈 응답)')+(fell?'\n\n※ 외부 API 연결이 막혀 내장 Claude로 답했습니다.':''); chatHist.push({role:'assistant',content:text||''});
+  }catch(err){
+    out.textContent=err&&err.code==='not_granted'?'Claude 사용 권한이 허용되지 않았습니다.':(err&&err.message?err.message:'응답을 받지 못했습니다.');
+    out.classList.add('err'); chatHist.pop();
+  }
+  chatBusy=false; $('c-send').disabled=false; $('c-log').scrollTop=$('c-log').scrollHeight;
+});
+
+/* ---------- storage ---------- */
+render();
+(async()=>{
+  try{ db=await claude.use('db'); }catch(e){ db=null; }
+  if(!db){ $('submit').disabled=true; $('up-btn').disabled=true; $('w-go').disabled=true; setStatus(); return; }
+  db.collection('ship').onSnapshot(s=>{
+    ships=new Map(); s.docs.forEach(d=>{const x=d.data(); if(x&&Array.isArray(x.rows)) ships.set(d.id,x)});
+    shipReady=true; render();
+  },()=>{shipReady=true;render()});
+  db.collection('claims').onSnapshot(s=>{
+    claims=s.docs.map(d=>({id:d.id,...d.data()})); claimReady=true; render();
+  },()=>{claimReady=true;render()});
+})();
+})();
+</script>
+
+</body>
+</html>
